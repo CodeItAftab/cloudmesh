@@ -1,0 +1,219 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// AUTH / PRIMARY IDENTITY
+// ============================================
+
+model User {
+  id           String   @id @default(uuid())
+  primaryEmail String   @unique
+  googleSub    String   @unique
+  displayName  String?
+  avatarUrl    String?
+  status       UserStatus @default(ACTIVE)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  lastLoginAt  DateTime?
+
+  sessions          Session[]
+  providerIdentities ProviderIdentity[]
+  connectedAccounts ConnectedAccount[]
+  folders           Folder[]
+  files             File[]
+  masterKey UserMasterKey?
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+model Session {
+  id             String   @id @default(uuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id])
+  sessionTokenHash String @unique
+  userAgent      String?
+  ipAddress      String?
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  revokedAt      DateTime?
+
+  @@index([userId])
+}
+
+model ProviderIdentity {
+  id          String   @id @default(uuid())
+  provider    Provider @default(GOOGLE)
+  providerSub String
+  email       String
+  role        IdentityRole
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@unique([provider, providerSub])
+}
+
+enum Provider {
+  GOOGLE
+}
+
+enum IdentityRole {
+  PRIMARY
+  CONNECTED_STORAGE
+}
+
+// ============================================
+// CONNECTED STORAGE ACCOUNTS
+// ============================================
+
+model ConnectedAccount {
+  id                    String   @id @default(uuid())
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id])
+  displayName           String
+  email                 String
+  refreshTokenEncrypted Bytes
+  accessTokenEncrypted  Bytes?
+  tokenExpiry           DateTime?
+  rootFolderId          String?
+  quotaTotalBytes       BigInt?
+  quotaUsedBytes        BigInt?
+  quotaSyncedAt         DateTime?
+  status                AccountStatus @default(ACTIVE)
+  connectedAt           DateTime @default(now())
+  disconnectedAt        DateTime?
+
+  chunks Chunk[]
+
+  @@index([userId])
+}
+
+enum AccountStatus {
+  ACTIVE
+  REVOKED
+  ERROR
+  DISCONNECTING
+}
+
+// ============================================
+// VIRTUAL FOLDER STRUCTURE
+// ============================================
+
+model Folder {
+  id             String   @id @default(uuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id])
+  parentFolderId String?
+  parentFolder   Folder?  @relation("FolderTree", fields: [parentFolderId], references: [id])
+  children       Folder[] @relation("FolderTree")
+  path           String
+  name           String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  deletedAt      DateTime?
+
+  files File[]
+
+  @@index([userId, parentFolderId])
+  @@index([path])
+}
+
+// ============================================
+// FILES + CHUNK MANIFEST
+// ============================================
+
+model File {
+  id               String   @id @default(uuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id])
+  folderId         String?
+  folder           Folder?  @relation(fields: [folderId], references: [id])
+  filename         String
+  sizeBytes        BigInt
+  mimeType         String?
+  status           FileStatus @default(UPLOADING)
+  encryptionIv     String
+  encryptionKeyRef String
+  checksum         String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  deletedAt        DateTime?
+
+  chunks         Chunk[]
+  uploadSessions UploadSession[]
+
+  @@index([userId, folderId])
+}
+
+enum FileStatus {
+  UPLOADING
+  COMPLETE
+  DEGRADED
+  FAILED
+  DELETED
+}
+
+model Chunk {
+  id               String   @id @default(uuid())
+  fileId           String
+  file             File     @relation(fields: [fileId], references: [id])
+  chunkIndex       Int
+  byteOffset       BigInt
+  sizeBytes        Int
+  accountId        String
+  account          ConnectedAccount @relation(fields: [accountId], references: [id])
+  providerFileId   String?
+  checksum         String?
+  status           ChunkStatus @default(PLANNED)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([fileId])
+  @@index([accountId])
+}
+
+model UserMasterKey {
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id])
+  encryptedKey  Bytes
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+enum ChunkStatus {
+  PLANNED
+  UPLOADED
+  VERIFIED
+  FAILED
+  DELETED
+}
+
+model UploadSession {
+  id        String   @id @default(uuid())
+  fileId    String
+  file      File     @relation(fields: [fileId], references: [id])
+  userId    String
+  status    UploadSessionStatus @default(PLANNING)
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+}
+
+enum UploadSessionStatus {
+  PLANNING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  EXPIRED
+}
+
