@@ -92,40 +92,74 @@ export async function filesRoutes(app: FastifyInstance) {
           },
         });
 
-        const manifestChunks = [];
-        for (const p of plan) {
-          const chunk = await db.chunk.create({
-            data: {
-              fileId: file.id,
-              chunkIndex: p.chunkIndex,
-              byteOffset: BigInt(p.byteOffset),
-              sizeBytes: p.sizeBytes,
-              accountId: p.accountId,
-              status: "PLANNED",
-            },
-          });
+        // Cache account lookups + tokens per accountId so we don't repeat
+        // the same DB/Drive calls for every chunk that shares an account.
+        const accountCache = new Map<
+          string,
+          { rootFolderId: string; accessToken: string }
+        >();
+
+        async function getAccountContext(accountId: string) {
+          const cached = accountCache.get(accountId);
+          if (cached) return cached;
 
           const account = await db.connectedAccount.findUniqueOrThrow({
-            where: { id: p.accountId },
+            where: { id: accountId },
           });
 
-          const accessToken = await getValidAccessToken(p.accountId);
-          const uploadUrl = await initResumableUploadSession(
-            accessToken,
-            account.rootFolderId!,
-            `chunk-${chunk.id}`,
-            p.sizeBytes,
-          );
-
-          manifestChunks.push({
-            chunkId: chunk.id,
-            chunkIndex: chunk.chunkIndex,
-            byteOffset: chunk.byteOffset,
-            sizeBytes: chunk.sizeBytes,
-            uploadUrl,
-            authMode: "none" as const,
-          });
+          const accessToken = await getValidAccessToken(account.id);
+          const context = { rootFolderId: account.rootFolderId!, accessToken };
+          accountCache.set(accountId, context);
+          return context;
         }
+
+        const CONCURRENCY = 6;
+        const manifestChunks: any[] = new Array(plan.length);
+        let cursor = 0;
+
+        async function planWorker() {
+          while (cursor < plan!.length) {
+            const index = cursor++;
+            const p = plan![index];
+
+            const chunk = await db.chunk.create({
+              data: {
+                fileId: file.id,
+                chunkIndex: p.chunkIndex,
+                byteOffset: BigInt(p.byteOffset),
+                sizeBytes: p.sizeBytes,
+                accountId: p.accountId,
+                status: "PLANNED",
+              },
+            });
+
+            const { rootFolderId, accessToken } = await getAccountContext(
+              p.accountId,
+            );
+            const uploadUrl = await initResumableUploadSession(
+              accessToken,
+              rootFolderId,
+              `chunk-${chunk.id}`,
+              p.sizeBytes,
+            );
+
+            manifestChunks[index] = {
+              chunkId: chunk.id,
+              chunkIndex: chunk.chunkIndex,
+              byteOffset: chunk.byteOffset,
+              sizeBytes: chunk.sizeBytes,
+              uploadUrl,
+              authMode: "none" as const, // client will use the pre-signed URL directly
+            };
+          }
+        }
+
+        const workers = Array.from(
+          { length: Math.min(CONCURRENCY, plan.length) },
+          () => planWorker(),
+        );
+        await Promise.all(workers);
+
         results.push({
           tempId: fileInput.tempId,
           fileId: file.id,
@@ -234,6 +268,7 @@ export async function filesRoutes(app: FastifyInstance) {
           const accessToken = await getValidAccessToken(chunk.accountId);
           return {
             chunkIndex: chunk.chunkIndex,
+            byteOffset: chunk.byteOffset,
             url: buildDownloadUrl(chunk.providerFileId!),
             authMode: "bearer" as const,
             accessToken, // short-lived; safe to hand to the client for this one download

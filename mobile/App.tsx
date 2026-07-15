@@ -7,6 +7,7 @@ import { initUploadDb } from "./src/lib/upload/uploadDb";
 
 import { processUploadQueue } from "./src/lib/upload/uploadRunner";
 import { useUploadUIStore } from "./src/lib/upload/uploadUIStore";
+import { StatusBar } from "expo-status-bar";
 export default function App() {
   useEffect(() => {
     async function initializeSystem() {
@@ -40,6 +41,7 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <RootNavigator />
+      <StatusBar />
     </SafeAreaProvider>
   );
 }

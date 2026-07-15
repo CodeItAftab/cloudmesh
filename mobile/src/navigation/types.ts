@@ -12,6 +12,7 @@ export type SetupStackParamList = {
 
 export type FilesStackParamList = {
   FileBrowser: { folderId: string; folderName: string } | undefined;
+  UploadsScreen: undefined;
 };
 
 export type AccountsStackParamList = {

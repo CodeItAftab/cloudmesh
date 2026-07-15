@@ -16,6 +16,7 @@ import { StorageMetricCard } from "../../components/Dashboard/StorageMetricCard"
 import { RecentActivityList } from "../../components/Dashboard/RecentActivityList";
 import { ConnectedStorageModal } from "../../components/Dashboard/ConnectedStorageModal";
 import { DashboardData, getDashboardStats } from "../../lib/api/drive";
+import { UploadMiniBar } from "../../components/Upload/UploadMiniBar";
 
 interface StorageAccount {
   id: string;
@@ -154,6 +155,7 @@ export function DashboardScreen() {
         {/* 🟢 NEW COMPONENT INJECTED: Handles inline skeletons or tight file logs internally */}
         <RecentActivityList isSyncingStats={isSyncingStats} />
       </ScrollView>
+      <UploadMiniBar />
 
       {/* CLOUD ENVIRONMENT DETAILS OVERLAY LAYER */}
       <ConnectedStorageModal

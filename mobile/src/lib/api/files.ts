@@ -101,15 +101,15 @@ export async function initUpload(
     filename: string;
     sizeBytes: number;
     mimeType?: string;
-    folderId: string | null;
   }[],
+  folderId: string | null,
 ): Promise<{
   files: UploadPlanFile[];
   failed: { tempId: string; reason: string }[];
 }> {
   const res = await apiFetch("/files/upload/init", {
     method: "POST",
-    body: JSON.stringify({ files }),
+    body: JSON.stringify({ folderId, files }),
   });
   if (!res.ok) throw new Error(`Failed to init upload (${res.status})`);
   return res.json();

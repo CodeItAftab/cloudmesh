@@ -1,13 +1,10 @@
 import * as SQLite from "expo-sqlite";
 
-// Initialize as null to make it easy to type-check
 let db: SQLite.SQLiteDatabase | null = null;
 
 export async function initUploadDb() {
-  // Changed DB name version to bypass any previously corrupted database states
   const instance = await SQLite.openDatabaseAsync("cloudmesh_uploads_v3.db");
 
-  // 📜 Fix: Injected the missing 'S' to turn 'EXIST' into 'EXISTS'
   await instance.execAsync(`
     CREATE TABLE IF NOT EXISTS local_files (
       file_id TEXT PRIMARY KEY,
@@ -31,7 +28,21 @@ export async function initUploadDb() {
     );
   `);
 
-  // Only assign to the global export AFTER tables are successfully created
+  // 🔧 Migration: add failure-tracking columns if they don't exist yet.
+  // Wrapped individually since SQLite errors on ALTER TABLE ADD COLUMN
+  // if the column already exists — safe to ignore that specific failure.
+  const migrations = [
+    `ALTER TABLE local_files ADD COLUMN failure_reason TEXT`,
+    `ALTER TABLE local_chunks ADD COLUMN last_error TEXT`,
+  ];
+  for (const sql of migrations) {
+    try {
+      await instance.execAsync(sql);
+    } catch {
+      // Column already exists — expected on subsequent app launches, ignore.
+    }
+  }
+
   db = instance;
   console.log("🚀 SQLite database and schemas initialized successfully.");
 }
